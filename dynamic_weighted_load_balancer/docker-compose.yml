@@ -1,0 +1,22 @@
+version: "3"
+services:
+    app1:
+        build:
+            context: ./app1
+        ports:
+            - "5001:5000"
+    app2:
+        build:
+            context: ./app2
+        ports:
+            - "5002:5000"
+    app3:
+        build:
+            context: ./app3
+        ports:
+            - "5003:5000"
+    load-balancer:
+        build:
+            context: ./load_balancer
+        ports:
+            - "80:80"
