@@ -11,30 +11,35 @@ backend_services = [
     ("app3", 5000),
 ]
 
-container_names = ["dynamic_weighted_load_balancer-app1-1","dynamic_weighted_load_balancer-app2-1","dynamic_weighted_load_balancer-app3-1"]
+container_names = ["dynamic_weighted_load_balancer-app1-1", "dynamic_weighted_load_balancer-app2-1", "dynamic_weighted_load_balancer-app3-1"]
 
+# Initialize a dictionary to store the health status of backend services
+service_health = {service: True for service in backend_services}
 
 @app.route('/')
 def load_balancer():
+    # Perform health checks and exclude unhealthy services
+    active_services = [service for service in backend_services if service_health[service]]
 
-    cpu_loads = get_cpu_loads_from_containers(container_names);
-    weights = []
-    for entry in cpu_loads:
-        cpu_load = entry["cpu_load"]
-        weight = 10 - (cpu_load / 10) 
-        weights.append(weight)
+    if not active_services:
+        return "No healthy services available", 503
 
+    # Retrieve CPU loads and calculate weights based on the CPU load
+    cpu_loads = get_cpu_loads_from_containers(container_names)
+    weights = [10 - (cpu_load['cpu_load'] / 10) for cpu_load in cpu_loads]
 
-    
-    backend_service = weighted_random_selection(backend_services,weights,cpu_loads)
+    # Perform weighted random selection
+    backend_service = weighted_random_selection(active_services, weights)
+
     hostname, port = backend_service
 
     try:
         response = requests.get(f'http://{hostname}:{port}', timeout=5)
         return Response(response.content, status=response.status_code, content_type=response.headers['content-type'])
     except requests.exceptions.RequestException as e:
+        # Handle errors and mark the service as temporarily unhealthy
+        service_health[backend_service] = False
         return str(e), 500
-
 
 def get_cpu_loads_from_containers(container_names):
     # Initialize an array to store the CPU loads
@@ -59,21 +64,17 @@ def get_cpu_loads_from_containers(container_names):
 
     return cpu_loads
 
-def weighted_random_selection(population, weights,cpu_loads):
-  total_weight = sum(weights)
-  target = random.uniform(0, total_weight)
-  cumulative_weight = 0
+def weighted_random_selection(population, weights):
+    total_weight = sum(weights)
+    target = random.uniform(0, total_weight)
+    cumulative_weight = 0
 
-  with open('logs.txt', 'a') as log_file:
-    log_message = f"Cpu load = {cpu_loads}\n Weights = {weights} \n random target = {target}\n"
-    log_file.write(log_message)
+    for i in range(len(population)):
+        cumulative_weight += weights[i]
+        if cumulative_weight >= target:
+            return population[i]
 
-  for i in range(len(population)):
-    cumulative_weight += weights[i]
-    if cumulative_weight >= target:
-      return population[i]
-
-  raise ValueError("Target weight out of bounds.")
+    raise ValueError("Target weight out of bounds.")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
