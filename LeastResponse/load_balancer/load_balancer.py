@@ -7,37 +7,45 @@ app = Flask(__name__)
 
 backend_services = os.environ.get('BACKEND_SERVICES', '').split()
 
-response_times = {service: 0 for service in backend_services}
-
-current_service_index = 0
+# Use a dictionary to store the health status of each backend service
+service_health = {service: True for service in backend_services}
 
 print(backend_services)
-print(response_times)
 
 request_number = 0
 
 @app.route('/')
 def load_balancer():
-    global current_service_index, request_number
+    global request_number
     request_number += 1
-    min_response_time = min(response_times.values())
-    for service, response_time in response_times.items():
-        if response_time == min_response_time:
-            current_service = service
-            break
+
+    # Filter out unhealthy services
+    active_services = [service for service in backend_services if service_health[service]]
+
+    if not active_services:
+        return "No healthy services available", 503
+
+    # Implement a load balancing algorithm here, e.g., least response time, round-robin, etc.
+    current_service = active_services[request_number % len(active_services)]
 
     try:
         start_time = time.time()
         response = requests.get(f'http://{current_service}', timeout=5)
         end_time = time.time()
-        response_times[current_service] += (end_time - start_time)
+        response_time = end_time - start_time
+
+        # Update the response times based on the actual response time
+        response_times[current_service] = response_time
 
         with open('logs.txt', 'a') as log_file:
             log_message = f"Request {request_number}: {response_times}\n"
             log_file.write(log_message)
 
         return Response(response.content, status=response.status_code, content_type=response.headers['content-type'])
+
     except requests.exceptions.RequestException as e:
+        # Handle errors and mark the service as unhealthy
+        service_health[current_service] = False
         return str(e), 500
 
 if __name__ == '__main__':
